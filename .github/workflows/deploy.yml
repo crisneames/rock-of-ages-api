@@ -22,6 +22,29 @@ jobs:
       - uses: aws-actions/amazon-ecr-login@v2
 
 - name: Trigger remote deployment on EC2 via SSM
+  env:
+    INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
+    ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+    ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+    AWS_REGION: ${{ secrets.AWS_REGION }}
+  run: |
+    COMMANDS=$(jq -n --arg IMAGE "$ECR_REGISTRY/$ECR_REPOSITORY:latest" \
+      --arg REGION "$AWS_REGION" \
+      '{commands:[
+        "aws ecr get-login-password --region \($REGION) | docker login --username AWS --password-stdin '"$ECR_REGISTRY"'",
+        "docker pull \($IMAGE)",
+        "docker stop rock-of-ages-api || true",
+        "docker rm rock-of-ages-api || true",
+        "docker run --pull always -d --name rock-of-ages-api -p 80:8000 \($IMAGE)"
+      ]}')
+
+    aws ssm send-command \
+      --instance-ids "$INSTANCE_ID" \
+      --document-name "AWS-RunShellScript" \
+      --comment "Manual deploy from GitHub Actions" \
+      --parameters "$COMMANDS" \
+      --region "$AWS_REGION"
+
   run: |
     aws ssm send-command \
       --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
